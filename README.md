@@ -3,27 +3,35 @@
 # Tutorial: Text Similarity and Clustering 
 
 There are many situations in which we would like to measure the
-semantic similarity of two snippets of text. A few examples are:
+likeness of meaning – or *semantic* similarity – of text. A few examples are:
 
 * *Gaining corpus overview*: Given a new collection of documents, one is often interested
   in getting an overview of what types of documents are contained in the collection. Clustering
   similar documents can give us such an overview.
 * *Finding examples for extractor development*: Developing extractors
-  often requires finding examples to inform new rules for distant supervision or
-  features. Showing sentences without extractions but which are most similar to
+  typically requires finding examples to inform new rules for distant supervision or
+  features. Showing sentences without extractions but which are similar to
   those with extractions helps us find recall errors and improve extractors.
 * *Enhancing extraction with latent types as features*: Type information can
-  dramatically improve the quality of an extractor, but typical named-entity taggers
-  capture only a handful of types. We can add latent type information by clustering 
+  dramatically improve the quality of an extractor, but typical entity type taggers
+  recognize only a handful of types. We can add latent type information by clustering 
   words or phrases (with context they appear in), and adding features that indicate
   cluster membership.
-* *Linking entities with an incomplete database*: For many entity linking tasks we only have partial databases. For example, 
-  there is no database that contains all persons or organizations in the world. When mentions
-  cannot be linked to a database it is often still useful to cluster them. 
+* *Linking entities with an incomplete database*: For many entity linking tasks 
+  we only have partial databases. For example, there is no database that contains all 
+  persons or organizations in the world. In such cases it may be useful to
+  collect all information about the unknown entities by clustering their mentions,
+  and add them to the database.
 
-In this tutorial, we develop a system that estimates the semantic similarity of
-documents and both, finds the nearest neighbors to any given document, and
-creates a global clustering of documents.
+While these are all examples where we are interested in *semantic* similarity of text, 
+it is worth noting that there also exists a notion of *syntactic* similarity. Syntactic
+similarity, which is often used for identifying near-duplicate documents and plagariasm, 
+is not covered in this tutorial.
+
+In this tutorial, we show how to estimate the semantic similarity of
+two documents, using the Vector Space Model, TF/IDF, and Latent Semantic Analysis.
+We further show how to find the nearest neighbor to any given document, and how
+to cluster a set of documents.
 
 We use the [Reuters-21578 dataset](http://archive.ics.uci.edu/ml/machine-learning-databases/reuters21578-mld/reuters21578.html),
 which contains 20,000 articles that appeared on the Reuters newswire in 1987.
@@ -114,10 +122,40 @@ We now have table `article_tokens`:
  ...
 ```
 
+<link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/KaTeX/0.2.0/katex.min.css">
+<script src="//cdnjs.cloudflare.com/ajax/libs/KaTeX/0.2.0/katex.min.js"></script>
 
 ## Text Similarity
 
+There are a variety of techniques to estimate the semantic similarity of text documents.
+We use the term 'document', but note that a document here can also be a paragraph, a
+sentence, or any other range of text. 
 
+Some of the most popular approaches represent each document as a vector of weights. For
+example, there 
+
+Perhaps the simplest approach is to represent a document by the set of words that it
+contains. 
+
+<div id="element"></div>
+<script>
+element = document.getElementById('element');
+katex.render("c = \\pm\\sqrt{a^2 + b^2}", element);
+</script>
+
+
+
+
+
+The most popular approach is 
+To estimate the semantic similarity of documents, one often chooses a representation
+of documents and then defines a measure of similarity between documents with this representation.
+
+The most popular approach represents documents as vectors, where each dimension corresponds to
+a term contained in the document.
+
+
+Our goal is to estimate 
 Plan: represent each document as a vector of features.
 compare documents by comparing their vectors.
 Features: bag of words
