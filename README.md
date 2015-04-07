@@ -1,3 +1,5 @@
+<!-- TODO: look at http://www.mmds.org/#ver21 -->
+
 # Tutorial: Text Similarity and Clustering 
 
 There are many situations in which we would like to measure the
@@ -34,7 +36,12 @@ This tutorial assumes that you are already familiar with setting up and running 
 
 Several of the steps in this tutorial require [MADlib](http://madlib.net/), an extension to Postgres and Greenplum
 that offers a library of machine learning algorithms. Please follow the instructions in the [installation guide](https://github.com/madlib/madlib/wiki/Installation-Guide)
-to set up MADlib on your machine.
+to set up MADlib on your machine. See the end of this tutorial for some more notes on setting up MADlib on MacOS. 
+
+After you have installed MADlib, create a database for this project and load
+MADlib into this database. These steps can be done by running:
+
+   script/create-db-with-madlib.sh
 
 ## Preparing the Reuters dataset
 
@@ -87,12 +94,24 @@ extract_document_tokens: {
             stype = anyarray,
             initcond = '{}'
           ); 
-          INSERT INTO article_tokens 
+          INSERT INTO article_tokens
             SELECT cast(substring(sentence_id from '^[^@]+') as int), 
                    array_accum(words) 
             FROM sentences GROUP BY substring(sentence_id from '^[^@]+');
        """
 }
+```
+
+We now have table `article_tokens`:
+
+```
+  5094 | {The,company,said,the,agreement,is,subject,to,regulatory,approval,.,It,said,...}
+ 13088 | {Seaway,Multi-Corp,Ltd,said,Peat,Marwick,Ltd,was,appointed,receiver-manager,...}
+  4240 | {Qtly,div,34,cts,vs,34,cts,prior,Pay,May,15,Record,April,24,Reuter}
+  7498 | {Qtly,cash,distribution,72,cts,vs,72,cts,prior,Pay,May,15,Record,March,31,Reuter}
+  3261 | {``,I,think,someone,else,will,probably,come,in,",",or,they,-LRB-,MTS,-RRB-,...}
+ 14441 | {Reuter,``,As,a,result,of,today,'s,PSC,decision,to,allow,our,private,line,...}
+ ...
 ```
 
 
@@ -110,57 +129,71 @@ Most entries 0 --> sparse vector representation.
 Need encoding of documents as sparse vectors,
 as input to madlib
 
-
-1. write extractor for words and their positions, 
-
-   doc_id, term, positions 
+Need features table containing one row for each unique token:
 
 ```sql
-SELECT madlib.svec_sfv((SELECT a FROM features LIMIT 1),b)::float8[]
-         FROM article_tokens;
+CREATE TABLE documents_table AS 
+  SELECT id, unnest(words) AS term, count(*) AS count FROM article_tokens GROUP BY id, term;
+```
+
+
+```sql
+DROP SEQUENCE IF EXISTS dictionary_id_seq;
+CREATE SEQUENCE dictionary_id_seq MINVALUE 0 START 0;
+
+DROP TABLE IF EXISTS dictionary_table;
+CREATE TABLE dictionary_table AS SELECT nextval('dictionary_id_seq') AS id, a AS term 
+  FROM (SELECT DISTINCT unnest(words) AS a FROM article_tokens ORDER BY a) t;
+```
+
+
+And table `features`:
+
+```
+ court-ordered
+ 64,652
+ model
+ ABABA
+ 480,200
+ desposit
+ ...
+```
+
+Generate sparse vectors:
+
+
+SELECT * FROM madlib.gen_doc_svecs('svec_output', 'dictionary_table', 'id', 'term',
+                            'documents_table', 'id', 'term', 'count');
+
+
+geo=# select * from svec_output limit 1;
+```
+ doc_id |                              sparse_vector
+--------+---------------------------------------------------------------------------
+      1 | {18,1,12,1,49,1,242,1,1558,1,...,71,1,4}:{0,2,0,20,0,20,0,1,0,1,...,0,1,0}
+(1 row)
 ```
 
 
 
-2. prepare dictionary table: (just a sql query)?
+For more information on how to encode sparse vectors and compute cosine distance with MADlib, see [this documentation page](http://doc.madlib.net/latest/group__grp__svec.html).
 
-3. generate sparse vectors
-
-SELECT * FROM madlib.gen_doc_svecs('svec_output', 'dictionary_table', 'id', 'term',
-                            'documents_table', 'id', 'term', 'positions');
-
-4. anlyze the sparse vecs:
-SELECT * FROM svec_output ORDER by doc_id;
-
-now can measure document similarity by cosine distance.
-todo
-
-two problems:
-1. stopwords, 
-
-
-
-SELECT madlib.svec_sfv((SELECT a FROM features LIMIT 1),b)::float8[]
-         FROM documents;
-
-lining up with original text
-SELECT madlib.svec_sfv((SELECT a FROM features LIMIT 1),b)::float8[]
-                , b
-         FROM documents;
-
-compute the cosine distance 
 
 ```sql
 SELECT docnum,
                 180. * ( ACOS( madlib.svec_dmin( 1., madlib.svec_dot(tf_idf, testdoc)
                     / (madlib.svec_l2norm(tf_idf)*madlib.svec_l2norm(testdoc))))/3.141592654) angular_distance
-         FROM weights,(SELECT tf_idf testdoc FROM weights WHERE docnum = 1 LIMIT 1) foo
-         ORDER BY 1;
+         FROM svec_output,(SELECT tf_idf testdoc FROM svec_output WHERE docnum = 5) foo
+         ORDER BY angular_distance ASC LIMIT 10;
 ```
 
-For more information on how to encode sparse vectors and compute cosine distance with MADlib, see [this documentation page](http://doc.madlib.net/latest/group__grp__svec.html).
 
-## TF/IDF feature weighting
+
+stopwords?
+Note: on larger copora ... remove stop words for perfornance
+
+
+TF/IDF
 
 Problem:
 
@@ -171,20 +204,79 @@ tfidf
 
 {#Times in document} * log {#Documents / #Documents the term appears in}.
 
-CREATE TABLE corpus AS
-            (SELECT a, madlib.svec_sfv((SELECT a FROM features LIMIT 1),b) sfv
-         FROM documents);
+
+
+
 CREATE TABLE weights AS
-          (SELECT a docnum, madlib.svec_mult(sfv, logidf) tf_idf
-           FROM (SELECT madlib.svec_log(madlib.svec_div(count(sfv)::madlib.svec,madlib.svec_count_nonzero(sfv))) logidf
-                FROM corpus) foo, corpus ORDER BYdocnum);
+          (SELECT doc_id docnum, madlib.svec_mult(sparse_vector, logidf) tf_idf
+           FROM (SELECT madlib.svec_log(madlib.svec_div(count(sparse_vector)::madlib.svec,madlib.svec_count_nonzero(sparse_vector))) logidf
+                FROM svec_output) foo, svec_output ORDER BY docnum);
 SELECT * FROM weights;
 
 
+Cosine distance 
+
+
+
+
+To see that this works, let's find the documents that are most similar to document 5:
+
+```sql
+SELECT docnum,
+                180. * ( ACOS( madlib.svec_dmin( 1., madlib.svec_dot(tf_idf, testdoc)
+                    / (madlib.svec_l2norm(tf_idf)*madlib.svec_l2norm(testdoc))))/3.141592654) angular_distance
+         FROM weights,(SELECT tf_idf testdoc FROM weights WHERE docnum = 5) foo
+         ORDER BY angular_distance ASC LIMIT 10;
+```
+
+```
+ docnum | angular_distance
+--------+------------------
+      5 |                0
+  13799 |  11.019251884022
+  15952 | 13.3873511332859
+  14486 |   13.46229603937
+  13856 | 71.6346392465557
+     97 | 77.6169952221422
+  14675 | 78.1990826178091
+  13394 |  79.989504110232
+  13413 | 80.4020417911525
+  13758 |  80.506657232129
+(10 rows)
+```
+
+Clearly, 5 is most similar to itself; the next most similar is document 13799. We verify
+
+```sql
+SELECT id, body FROM articles WHERE id in (5, 13799);
+```
+
+The two articles are indeed similar, but not identical:
+
+```
+  id   |                              body
+-------+----------------------------------------------------------------
+     5 | The U.S. Agriculture Department                               +
+       | reported the farmer-owned reserve national five-day average   +
+       | price through February 25 as follows (Dlrs/Bu-Sorghum Cwt) -  +
+       |          Natl   Loan           Release   Call                 +
+       |          Avge   Rate-X  Level    Price  Price                 +
+       |  Wheat   2.55   2.40       IV     4.65     --                 +
+...
+ 13799 | The U.S. Agriculture Department                               +
+       | reported the farmer-owned reserve national five-day average   +
+       | price through April 6 as follows (Dlrs/Bu-Sorghum Cwt) -      +
+       |          Natl   Loan           Release   Call                 +
+       |          Avge   Rate-X  Level    Price  Price                 +
+       |  Wheat   2.64   2.40       IV     4.65     --                 +
+...
+```
+
 Now, rerun cosine distance, look at a few examples, eg. document most similar to X
 
-
 In general good results, and many stop here.
+
+
 
 ## Latent Semantic Analysis
 
@@ -202,6 +294,31 @@ solution: map into latent concepts, lower dimensional subspace
 
 SVD
 
+create term-document matrix (sparse)
+
+
+DROP TABLE IF EXISTS tdm;
+CREATE TABLE tdm AS
+SELECT docnum as doc, term, value FROM weights, LATERAL unnest(
+   madlib.svec_nonbase_positions(tf_idf, 0),
+   madlib.svec_nonbase_values(tf_idf, 0)) AS t(term, value);
+
+
+DROP TABLE IF EXISTS svd_u;
+DROP TABLE IF EXISTS svd_v; 
+DROP TABLE IF EXISTS svd_s; 
+
+SELECT madlib.svd_sparse('tdm', 'svd', 'term', 'doc', 'value', 
+    77993, 19043, 3, 12);
+
+-- k=3, nIterations = 12
+select madlib.svd_sparse('inputable', 'svd', 'row_id', 'col_id',
+'value', 10000, 10000, 3, 12);
+row_dim, col_dim
+
+
+
+
 
 
 
@@ -217,3 +334,35 @@ Larger document collections
 
 rather than find the closest pair across entire collection, find closest pair in random subset (as large as you can handle).
 sample as many
+
+## MADlib on MacOS
+
+We recommend building MADlib from source. Checkout the latest version:
+
+```
+git clone https://github.com/madlib/madlib.git
+```
+
+You will have to install the GNU C++ compiler, as the Clang compiler that ships with MacOS/xcode doesn't
+work for this project. We recommend using [MacPorts](https://guide.macports.org/), since it allows one to
+easily switch between different compilers.
+
+```
+sudo port install g++-4.9
+sudo port install gcc_select
+```
+
+You can now check which compilers are installed and then select the GNU compiler by running
+
+```
+sudo port select --list gcc
+sudo port select --set gcc gcc49
+```
+
+Now, make sure that running `g++ --version` doesn't return `Apple LLVM version ...`, but `g++ (MacPorts gcc49 ...) ...`.
+
+Now follow the [instructions on building MADlib from source](https://github.com/madlib/madlib/wiki/Building-MADlib-from-Source).
+
+NOTE: There appears to be a bug in the sparse vector encoding which affects this tutorial. Apply 
+[these changes](https://github.com/madlib/madlib/pull/309) before compiling.
+
