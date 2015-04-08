@@ -51,6 +51,7 @@ MADlib into this database. These steps can be done by running:
 
    script/create-db-with-madlib.sh
 
+
 ## Preparing the Reuters dataset
 
 We download the Reuters corpus from [UC Irvine repository](http://archive.ics.uci.edu/ml/machine-learning-databases/reuters21578-mld/reuters21578.html).
@@ -143,7 +144,10 @@ element = document.getElementById('element');
 katex.render("c = \\pm\\sqrt{a^2 + b^2}", element);
 </script>
 
+<img src="e1.png">
 
+
+<img src="eq2.png">
 
 
 
