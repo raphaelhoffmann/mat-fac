@@ -147,10 +147,10 @@ element = document.getElementById('element');
 katex.render("c = \\pm\\sqrt{a^2 + b^2}", element);
 </script>
 
-<img src="e1.png">
+<img src="eq1.png" style="width:50%;height:50%">
 
 
-<img src="eq2.png">
+<img src="eq2.png" style="width:50%;height:50%">
 
 
 
